@@ -8,7 +8,9 @@ import {
     Typography,
     Button,
     Drawer,
+    Input,
     Table,
+    Modal,
 } from 'antd'
 
 import { useLocalStorageState } from 'ahooks'
@@ -16,6 +18,7 @@ import { v4 as uuidv4 } from 'uuid'
 import dayjs from 'dayjs'
 
 const { Content } = Layout
+const { TextArea } = Input
 
 type CellData = {
     value: boolean
@@ -33,40 +36,38 @@ type GridData = {
 
 const Preview: React.FC<{ grid: GridData }> = ({ grid }) => {
     return (
-        <>
+        <div
+            style={{
+                padding: 0,
+                width: grid!.width,
+            }}
+        >
             <div
                 style={{
-                    padding: 0,
-                    width: grid!.width,
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${grid!.width}, 1fr)`,
+                    gap: 0,
+                    width: grid!.width * 2,
                 }}
             >
-                <div
-                    style={{
-                        display: 'grid',
-                        gridTemplateColumns: `repeat(${grid!.width}, 1fr)`,
-                        gap: 0,
-                        width: grid!.width * 2,
-                    }}
-                >
-                    {Array.from(
-                        { length: grid!.width * grid!.height },
-                        (_, index) => (
-                            <div
-                                style={{
-                                    backgroundColor: grid.cells[index]?.value
-                                        ? 'black'
-                                        : 'white',
-                                    cursor: 'pointer',
-                                    width: '2px',
-                                    height: '2px',
-                                    border: '0.5px solid #DDD',
-                                }}
-                            />
-                        )
-                    )}
-                </div>
+                {Array.from(
+                    { length: grid!.width * grid!.height },
+                    (_, index) => (
+                        <div
+                            key={index}
+                            style={{
+                                backgroundColor: grid.cells[index]?.value
+                                    ? 'black'
+                                    : 'white',
+                                width: '2px',
+                                height: '2px',
+                                border: '0.5px solid #DDD',
+                            }}
+                        />
+                    )
+                )}
             </div>
-        </>
+        </div>
     )
 }
 
@@ -89,7 +90,7 @@ const Pixel: React.FC<{
     )
 }
 
-const MyPage: React.FC = () => {
+const PixelArtBoard: React.FC = () => {
     const {
         token: { colorBgContainer, borderRadiusLG },
     } = theme.useToken()
@@ -97,6 +98,12 @@ const MyPage: React.FC = () => {
     const { message } = App.useApp()
 
     const [showHistory, setShowHistory] = useState<boolean>(false)
+
+    const [showImport, setShowImport] = useState<boolean>(false)
+
+    const [codeString, setCodeString] = useState<string>('')
+
+    const [importString, setImportString] = useState<string>('')
 
     const makeGrid = (): GridData => {
         const defaultCells = Array<CellData>(128 * 64).fill({
@@ -118,6 +125,54 @@ const MyPage: React.FC = () => {
     const [grid, setGrid] = useLocalStorageState<GridData>('current_crid', {
         defaultValue: makeGrid(),
     })
+
+    const binaryArrayToHex = (binaryArray: number[]): number[] => {
+        while (binaryArray.length % 8 !== 0) {
+            binaryArray.unshift(0)
+        }
+
+        const hexArray: number[] = []
+        for (let i = 0; i < binaryArray.length; i += 8) {
+            const chunk = binaryArray.slice(i, i + 8)
+            const hex = parseInt(chunk.join(''), 2) >>> 0
+            hexArray.push(hex)
+        }
+
+        return hexArray.reverse()
+    }
+
+    const copyCode = async () => {
+        if (navigator.clipboard && window.isSecureContext) {
+            try {
+                await navigator.clipboard.writeText(codeString)
+                message.success('复制成功!')
+            } catch (err) {
+                message.error('复制失败!')
+            }
+        }
+    }
+    const getCppCode = () => {
+        const chunks: (1 | 0)[][] = []
+
+        for (let i = 0; i < grid!.cells.length; i += grid!.width) {
+            chunks.push(
+                grid!
+                    .cells!.slice(i, i + grid!.width)
+                    .map((item) => (item.value ? 1 : 0))
+                    .reverse()
+            )
+        }
+
+        const hex: number[][] = chunks.map((item) => binaryArrayToHex(item))
+
+        const formattedLines = hex.map((subArray) =>
+            subArray
+                .map((num) => `0x${num.toString(16).padStart(2, '0')}`)
+                .join(',')
+        )
+        const formattedString = formattedLines.join(',\n')
+        setCodeString(formattedString)
+    }
 
     const saveGrid = (createANewOne: boolean) => {
         let newGrid = grid!
@@ -165,6 +220,41 @@ const MyPage: React.FC = () => {
         message.success('保存成功!')
     }
 
+    const importFromString = () => {
+        const cleanedString = importString.replace(/\s+/g, '')
+        const hexValues = cleanedString.split(',')
+
+        const n = hexValues.length / grid!.height
+        const hexValuesAsNumbers = hexValues.map((hex) => parseInt(hex, 16))
+        let result: number[][] = []
+        for (let i = 0; i < hexValuesAsNumbers.length; i += n) {
+            result.push(hexValuesAsNumbers.slice(i, i + n))
+        }
+
+        result = result.map((item) => {
+            return item
+                .map((num) => {
+                    const binaryStr = num.toString(2).padStart(8, '0')
+                    const reversedBinaryStr = binaryStr
+                        .split('')
+                        .reverse()
+                        .join('')
+                    return reversedBinaryStr
+                        .split('')
+                        .map((bit) => parseInt(bit, 10))
+                })
+                .flat()
+                .slice(0, grid!.width)
+        })
+        setGrid({
+            ...grid!,
+            cells: result.flat().map((item) => {
+                return { value: item === 1 } as CellData
+            }),
+        })
+        setImportString('')
+    }
+
     const reSetGrids = () => {
         setGrid({
             ...grid!,
@@ -189,6 +279,7 @@ const MyPage: React.FC = () => {
                 }),
         })
     }
+
     const invertGrids = () => {
         setGrid({
             ...grid!,
@@ -297,10 +388,18 @@ const MyPage: React.FC = () => {
 
     useEffect(
         () => {
-            fixGrids()
+            getCppCode()
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [grid]
+    )
+
+    useEffect(
+        () => {
+            fixGrids()
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [grid?.width, grid?.height]
     )
 
     return (
@@ -363,7 +462,7 @@ const MyPage: React.FC = () => {
                                 onChange={(value) => {
                                     setGrid({
                                         ...grid!,
-                                        width: value!,
+                                        width: value ?? 1,
                                     })
                                 }}
                             />
@@ -376,7 +475,7 @@ const MyPage: React.FC = () => {
                                 onChange={(value) => {
                                     setGrid({
                                         ...grid!,
-                                        height: value!,
+                                        height: value ?? 1,
                                     })
                                 }}
                             />
@@ -385,6 +484,13 @@ const MyPage: React.FC = () => {
                             <Button onClick={shiftLeft}>左移</Button>
                             <Button onClick={shiftRight}>右移</Button>
                             <Button onClick={invertGrids}>反色</Button>
+                            <Button
+                                onClick={() => {
+                                    setShowImport(true)
+                                }}
+                            >
+                                导入
+                            </Button>
                             <Button danger onClick={reSetGrids}>
                                 清空
                             </Button>
@@ -411,21 +517,42 @@ const MyPage: React.FC = () => {
                             {Array.from(
                                 { length: grid!.width * grid!.height },
                                 (_, index) => (
-                                    <>
-                                        <Pixel
-                                            key={index}
-                                            index={index}
-                                            toggleColor={toggleColor}
-                                            grid={grid!}
-                                        ></Pixel>
-                                    </>
+                                    <Pixel
+                                        key={index}
+                                        index={index}
+                                        toggleColor={toggleColor}
+                                        grid={grid!}
+                                    ></Pixel>
                                 )
                             )}
                         </div>
                     </div>
+                    <Button type="primary" onClick={copyCode}>
+                        复制代码
+                    </Button>
+                    <TextArea rows={6} value={codeString} />
                 </Space>
+                <Modal
+                    open={showImport}
+                    title="导入 16 进制代码"
+                    onClose={() => setShowImport(false)}
+                    onCancel={() => setShowImport(false)}
+                    onOk={() => {
+                        importFromString()
+                        setShowImport(false)
+                    }}
+                >
+                    <TextArea
+                        placeholder="例如: 0x08,0x0c,0x08,0x08,0x08,0x08,0x08,0x1c"
+                        rows={5}
+                        value={importString}
+                        onChange={(e) => {
+                            setImportString(e.target.value)
+                        }}
+                    />
+                </Modal>
                 <Drawer
-                    width={600}
+                    width={1200}
                     open={showHistory}
                     onClose={() => {
                         setShowHistory(false)
@@ -433,6 +560,7 @@ const MyPage: React.FC = () => {
                 >
                     <Table
                         dataSource={history}
+                        rowKey="id"
                         columns={[
                             { title: '名称', dataIndex: 'name' },
                             {
@@ -489,7 +617,7 @@ const MyPage: React.FC = () => {
 
 const MyApp: React.FC = () => (
     <App>
-        <MyPage />
+        <PixelArtBoard />
     </App>
 )
 
