@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import {
     App,
     Layout,
@@ -11,8 +11,15 @@ import {
     Input,
     Table,
     Modal,
+    Upload,
+    Image,
+    Slider,
+    Divider,
+    Radio,
 } from 'antd'
-
+import { UploadOutlined } from '@ant-design/icons'
+import type { UploadProps } from 'antd'
+import type { UploadRequestOption } from 'rc-upload/lib/interface'
 import { useLocalStorageState } from 'ahooks'
 import { v4 as uuidv4 } from 'uuid'
 import dayjs from 'dayjs'
@@ -24,12 +31,20 @@ type CellData = {
     value: boolean
 }
 
+type DitheringMode = 'floyd-steinberg' | 'threshold'
+
 type GridData = {
     id: string
     name: string
     cells: CellData[]
     createdAt: string
     updatedAt: string
+    width: number
+    height: number
+}
+
+type CustomImageData = {
+    imageData: ImageData
     width: number
     height: number
 }
@@ -97,13 +112,28 @@ const PixelArtBoard: React.FC = () => {
 
     const { message } = App.useApp()
 
-    const [showHistory, setShowHistory] = useState<boolean>(false)
+    const [gridWidthValue, setGridWidthValue] = useState<number>(128)
+    const [gridHeightValue, setGridHeightValue] = useState<number>(64)
 
-    const [showImport, setShowImport] = useState<boolean>(false)
+    const [showHistory, setShowHistory] = useState<boolean>(false)
+    const [showImportCode, setShowImportCode] = useState<boolean>(false)
+    const [showImportImage, setShowImportImage] = useState<boolean>(false)
 
     const [codeString, setCodeString] = useState<string>('')
 
     const [importString, setImportString] = useState<string>('')
+
+    const [ditheringMode, setDitheringMode] =
+        useState<DitheringMode>('floyd-steinberg')
+
+    const [importImageData, setImportImageData] = useState<
+        CustomImageData | undefined
+    >()
+
+    const [ditherImageThreshold, setDitherImageThreshold] =
+        useState<number>(128)
+
+    const [imageBase64URL, setImageBase64URL] = useState<string | undefined>()
 
     const makeGrid = (): GridData => {
         const defaultCells = Array<CellData>(128 * 64).fill({
@@ -125,6 +155,7 @@ const PixelArtBoard: React.FC = () => {
     const [grid, setGrid] = useLocalStorageState<GridData>('current_crid', {
         defaultValue: makeGrid(),
     })
+    const previousGrid = useRef(grid)
 
     const binaryArrayToHex = (binaryArray: number[]): number[] => {
         while (binaryArray.length % 8 !== 0) {
@@ -264,20 +295,44 @@ const PixelArtBoard: React.FC = () => {
         })
     }
 
-    const fixGrids = () => {
+    const fixGrids = (newWidth: number, newHeight: number) => {
+        const newCells: CellData[] = Array(newWidth * newHeight).fill({
+            value: false,
+        })
+
+        // 计算旧 cells 数组的尺寸
+        const oldWidth = previousGrid.current?.width ?? 0
+        const oldHeight = previousGrid.current?.height ?? 0
+        const oldCells = previousGrid.current?.cells!
+
+        console.log(oldCells)
+
+        const minWidth = Math.min(newWidth, oldWidth)
+        const minHeight = Math.min(newHeight, oldHeight)
+
+        // 将旧 cells 数组的数据复制到新数组中
+        for (let y = 0; y < minHeight; y++) {
+            for (let x = 0; x < minWidth; x++) {
+                const oldIndex = y * oldWidth + x
+                const newIndex = y * newWidth + x
+                console.log(oldWidth, newWidth)
+                if (oldCells[oldIndex]) {
+                    newCells[newIndex] = oldCells[oldIndex]
+                }
+            }
+        }
+        console.log(newCells)
+
         setGrid({
             ...grid!,
-            cells: Array<CellData>(grid!.width * grid!.height)
-                .fill({
-                    value: false,
-                })
-                .map((item, index) => {
-                    if (grid && grid.cells[index]) {
-                        return grid.cells[index]
-                    }
-                    return item
-                }),
+            cells: newCells,
+            width: newWidth,
+            height: newHeight,
         })
+    }
+
+    const updateSize = (width: number, height: number) => {
+        fixGrids(width, height)
     }
 
     const invertGrids = () => {
@@ -378,9 +433,190 @@ const PixelArtBoard: React.FC = () => {
         })
     }
 
+    const handleChange: UploadProps['onChange'] = ({ fileList }) => {
+        console.log(fileList)
+    }
+
+    const floydSteinbergDithering = (
+        data: Uint8ClampedArray,
+        width: number,
+        height: number,
+        thresholdValue: number
+    ) => {
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                let i = (y * width + x) * 4
+                let r = data[i]
+                let g = data[i + 1]
+                let b = data[i + 2]
+                let gray = Math.round(0.3 * r + 0.59 * g + 0.11 * b)
+                let quantizedGray = gray < thresholdValue ? 0 : 255
+
+                data[i] = data[i + 1] = data[i + 2] = quantizedGray
+
+                let quantError = gray - quantizedGray
+
+                if (x + 1 < width) {
+                    data[i + 4] += (quantError * 7) / 16
+                }
+                if (y + 1 < height) {
+                    if (x > 0) {
+                        data[(y * width + x - 1) * 4 + 2] +=
+                            (quantError * 3) / 16
+                    }
+                    data[(y * width + x + 1) * 4] += (quantError * 5) / 16
+                    if (x + 1 < width) {
+                        data[(y * width + x + 2) * 4] += (quantError * 1) / 16
+                    }
+                }
+            }
+        }
+    }
+
+    const thresholdDithering = (
+        data: Uint8ClampedArray,
+        width: number,
+        height: number,
+        thresholdValue: number
+    ) => {
+        let currentPixelIndex = 0
+
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                let gray =
+                    data[currentPixelIndex] * 0.3 +
+                    data[currentPixelIndex + 1] * 0.59 +
+                    data[currentPixelIndex + 2] * 0.11
+                let threshold = gray > thresholdValue ? 255 : 0
+                data[currentPixelIndex] =
+                    data[currentPixelIndex + 1] =
+                    data[currentPixelIndex + 2] =
+                        threshold
+
+                let quantError = gray - threshold
+                // 扩散误差
+                if (x < width - 1) {
+                    data[currentPixelIndex + 3 * 1] += (quantError * 7) / 16
+                }
+                if (y < height - 1) {
+                    if (x > 0) {
+                        data[currentPixelIndex + -1 * width + 3 * 5] +=
+                            (quantError * 3) / 16
+                    }
+                    data[currentPixelIndex + width + 3 * 5] +=
+                        (quantError * 5) / 16
+                    if (x < width - 1) {
+                        data[currentPixelIndex + width + 3 * 7] +=
+                            (quantError * 1) / 16
+                    }
+                }
+
+                currentPixelIndex += 4
+            }
+        }
+    }
+
+    const imageDataToBase64URL = (
+        importImageData: CustomImageData | undefined
+    ) => {
+        if (importImageData) {
+            const { imageData, width, height } = importImageData
+
+            const copiedImageData: ImageData = new ImageData(
+                imageData.width,
+                imageData.height
+            )
+            imageData.data.forEach((value, index) => {
+                copiedImageData.data[index] = value
+            })
+
+            const data = copiedImageData.data
+
+            if (ditheringMode === 'floyd-steinberg') {
+                floydSteinbergDithering(
+                    data,
+                    width,
+                    height,
+                    ditherImageThreshold
+                )
+            } else {
+                thresholdDithering(data, width, height, ditherImageThreshold)
+            }
+
+            const canvas = document.createElement('canvas')
+            canvas.width = width
+            canvas.height = height
+            const ctx = canvas.getContext('2d')
+
+            if (ctx) {
+                ctx.putImageData(copiedImageData, 0, 0)
+                const base64URL = canvas.toDataURL('image/png')
+                setImageBase64URL(base64URL)
+            }
+        }
+    }
+
+    const customRequest = (options: UploadRequestOption) => {
+        const { onSuccess, onError, file, onProgress } = options
+
+        const reader = new FileReader()
+        reader.onprogress = (event) => {
+            const percent = (event.loaded / event.total) * 100
+            if (onProgress) {
+                onProgress({ percent })
+            }
+        }
+
+        reader.onload = (event) => {
+            const fileResult = event.target?.result
+            if (onSuccess) {
+                onSuccess('ok')
+            }
+            const image = document.createElement('img')
+            image.src = fileResult as string
+            image.addEventListener('load', () => {
+                const canvas = document.createElement('canvas')
+                const ctx = canvas.getContext('2d')
+
+                if (ctx) {
+                    canvas.width = image.width
+                    canvas.height = image.height
+
+                    console.log(canvas.width, canvas.height)
+
+                    ctx.drawImage(image, 0, 0)
+
+                    const imageData = ctx.getImageData(
+                        0,
+                        0,
+                        canvas.width,
+                        canvas.height
+                    )
+                    const newImageData = {
+                        imageData: imageData,
+                        width: canvas.width,
+                        height: canvas.height,
+                    }
+                    setImportImageData(newImageData)
+
+                    imageDataToBase64URL(newImageData)
+                }
+            })
+        }
+        reader.onerror = (event) => {
+            console.log(event)
+
+            if (onError) {
+                onError(event)
+            }
+        }
+
+        reader.readAsDataURL(file as Blob)
+    }
+
     useEffect(
         () => {
-            fixGrids()
+            fixGrids(grid!.width, grid!.height)
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
         []
@@ -389,6 +625,9 @@ const PixelArtBoard: React.FC = () => {
     useEffect(
         () => {
             getCppCode()
+            previousGrid.current = grid
+            setGridWidthValue(grid!.width)
+            setGridHeightValue(grid!.height)
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [grid]
@@ -396,10 +635,10 @@ const PixelArtBoard: React.FC = () => {
 
     useEffect(
         () => {
-            fixGrids()
+            imageDataToBase64URL(importImageData)
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [grid?.width, grid?.height]
+        [ditherImageThreshold, ditheringMode]
     )
 
     return (
@@ -458,12 +697,15 @@ const PixelArtBoard: React.FC = () => {
                                 min={1}
                                 max={128}
                                 placeholder="宽"
-                                value={grid?.width}
+                                value={gridWidthValue}
                                 onChange={(value) => {
-                                    setGrid({
-                                        ...grid!,
-                                        width: value ?? 1,
-                                    })
+                                    setGridWidthValue(value ?? 1)
+                                }}
+                                onPressEnter={(e) => {
+                                    updateSize(gridWidthValue, gridHeightValue)
+                                }}
+                                onStep={(value) => {
+                                    updateSize(value, gridHeightValue)
                                 }}
                             />
                             X
@@ -471,12 +713,15 @@ const PixelArtBoard: React.FC = () => {
                                 min={1}
                                 max={128}
                                 placeholder="高"
-                                value={grid?.height}
+                                value={gridHeightValue}
                                 onChange={(value) => {
-                                    setGrid({
-                                        ...grid!,
-                                        height: value ?? 1,
-                                    })
+                                    setGridHeightValue(value ?? 1)
+                                }}
+                                onPressEnter={(e) => {
+                                    updateSize(gridWidthValue, gridHeightValue)
+                                }}
+                                onStep={(value) => {
+                                    updateSize(gridWidthValue, value)
                                 }}
                             />
                             <Button onClick={shiftUp}>上移</Button>
@@ -486,10 +731,18 @@ const PixelArtBoard: React.FC = () => {
                             <Button onClick={invertGrids}>反色</Button>
                             <Button
                                 onClick={() => {
-                                    setShowImport(true)
+                                    setShowImportImage(true)
+                                }}
+                                disabled
+                            >
+                                导入图片...(开发中)
+                            </Button>
+                            <Button
+                                onClick={() => {
+                                    setShowImportCode(true)
                                 }}
                             >
-                                导入
+                                导入代码...
                             </Button>
                             <Button danger onClick={reSetGrids}>
                                 清空
@@ -533,23 +786,79 @@ const PixelArtBoard: React.FC = () => {
                     <TextArea rows={6} value={codeString} />
                 </Space>
                 <Modal
-                    open={showImport}
-                    title="导入 16 进制代码"
-                    onClose={() => setShowImport(false)}
-                    onCancel={() => setShowImport(false)}
+                    open={showImportImage}
+                    title="导入图片"
+                    onClose={() => setShowImportImage(false)}
+                    onCancel={() => setShowImportImage(false)}
                     onOk={() => {
-                        importFromString()
-                        setShowImport(false)
+                        //importFromString()
+                        setShowImportImage(false)
                     }}
                 >
-                    <TextArea
-                        placeholder="例如: 0x08,0x0c,0x08,0x08,0x08,0x08,0x08,0x1c"
-                        rows={5}
-                        value={importString}
-                        onChange={(e) => {
-                            setImportString(e.target.value)
-                        }}
-                    />
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                        <Upload
+                            accept="image/*"
+                            listType="picture-card"
+                            maxCount={1}
+                            onChange={handleChange}
+                            customRequest={customRequest}
+                        >
+                            <UploadOutlined />
+                            上传图片
+                        </Upload>
+                        {imageBase64URL && (
+                            <>
+                                <Divider />
+                                <Typography.Text strong>
+                                    取模算法
+                                </Typography.Text>
+                                <Radio.Group
+                                    onChange={(e) => {
+                                        setDitheringMode(e.target.value)
+                                    }}
+                                    value={ditheringMode}
+                                >
+                                    <Radio value="floyd-steinberg">
+                                        抖动取模
+                                    </Radio>
+                                    <Radio value="threshold">阈值取模</Radio>
+                                </Radio.Group>
+
+                                <Typography.Text strong>
+                                    阈值调节
+                                </Typography.Text>
+                                <Slider
+                                    value={ditherImageThreshold}
+                                    onChange={setDitherImageThreshold}
+                                    max={200}
+                                    min={10}
+                                />
+                                <Image src={imageBase64URL} width={300}></Image>
+                            </>
+                        )}
+                    </Space>
+                </Modal>
+                <Modal
+                    open={showImportCode}
+                    title="导入 16 进制代码"
+                    onClose={() => setShowImportCode(false)}
+                    onCancel={() => setShowImportCode(false)}
+                    onOk={() => {
+                        importFromString()
+                        setShowImportCode(false)
+                    }}
+                >
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                        导入前请确保已经设置好对应的宽高
+                        <TextArea
+                            placeholder="例如: 0x08,0x0c,0x08,0x08,0x08,0x08,0x08,0x1c"
+                            rows={5}
+                            value={importString}
+                            onChange={(e) => {
+                                setImportString(e.target.value)
+                            }}
+                        />
+                    </Space>
                 </Modal>
                 <Drawer
                     width={1200}
@@ -562,18 +871,20 @@ const PixelArtBoard: React.FC = () => {
                         dataSource={history}
                         rowKey="id"
                         columns={[
-                            { title: '名称', dataIndex: 'name' },
+                            { title: '名称', dataIndex: 'name', key: 'name' },
                             {
                                 title: '预览',
+                                key: 'preview',
                                 render: (value, record, index) => {
                                     return <Preview grid={record} />
                                 },
                             },
                             {
                                 title: '操作',
+                                key: 'action',
                                 render: (value, record, index) => {
                                     return [
-                                        <Space>
+                                        <Space key="buttons">
                                             <Button
                                                 onClick={() => {
                                                     setGrid(
