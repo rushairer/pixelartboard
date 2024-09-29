@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import {
     App,
     Layout,
@@ -18,10 +18,8 @@ import {
     Radio,
 } from 'antd'
 import { UploadOutlined } from '@ant-design/icons'
-import type { GetProp, UploadFile, UploadProps } from 'antd'
+import type { UploadProps } from 'antd'
 import type { UploadRequestOption } from 'rc-upload/lib/interface'
-import CryptoJS from 'crypto-js'
-
 import { useLocalStorageState } from 'ahooks'
 import { v4 as uuidv4 } from 'uuid'
 import dayjs from 'dayjs'
@@ -114,8 +112,10 @@ const PixelArtBoard: React.FC = () => {
 
     const { message } = App.useApp()
 
-    const [showHistory, setShowHistory] = useState<boolean>(false)
+    const [gridWidthValue, setGridWidthValue] = useState<number>(128)
+    const [gridHeightValue, setGridHeightValue] = useState<number>(64)
 
+    const [showHistory, setShowHistory] = useState<boolean>(false)
     const [showImportCode, setShowImportCode] = useState<boolean>(false)
     const [showImportImage, setShowImportImage] = useState<boolean>(false)
 
@@ -155,6 +155,7 @@ const PixelArtBoard: React.FC = () => {
     const [grid, setGrid] = useLocalStorageState<GridData>('current_crid', {
         defaultValue: makeGrid(),
     })
+    const previousGrid = useRef(grid)
 
     const binaryArrayToHex = (binaryArray: number[]): number[] => {
         while (binaryArray.length % 8 !== 0) {
@@ -294,26 +295,44 @@ const PixelArtBoard: React.FC = () => {
         })
     }
 
-    const fixGrids = () => {
-        let newCells: CellData[] = Array<CellData>(
-            grid!.width * grid!.height
-        ).fill({
+    const fixGrids = (newWidth: number, newHeight: number) => {
+        const newCells: CellData[] = Array(newWidth * newHeight).fill({
             value: false,
         })
-        //TODO grid width/ height更新的问题
-        for (let i = 0; i < grid!.width; i++) {
-            for (let j = 0; j < grid!.height; j++) {
-                if (i + grid!.width * j < grid!.width * grid!.height) {
-                    newCells[i + grid!.width * j] =
-                        grid!.cells[i + grid!.width * j]
+
+        // 计算旧 cells 数组的尺寸
+        const oldWidth = previousGrid.current?.width ?? 0
+        const oldHeight = previousGrid.current?.height ?? 0
+        const oldCells = previousGrid.current?.cells!
+
+        console.log(oldCells)
+
+        const minWidth = Math.min(newWidth, oldWidth)
+        const minHeight = Math.min(newHeight, oldHeight)
+
+        // 将旧 cells 数组的数据复制到新数组中
+        for (let y = 0; y < minHeight; y++) {
+            for (let x = 0; x < minWidth; x++) {
+                const oldIndex = y * oldWidth + x
+                const newIndex = y * newWidth + x
+                console.log(oldWidth, newWidth)
+                if (oldCells[oldIndex]) {
+                    newCells[newIndex] = oldCells[oldIndex]
                 }
             }
         }
+        console.log(newCells)
 
         setGrid({
             ...grid!,
             cells: newCells,
+            width: newWidth,
+            height: newHeight,
         })
+    }
+
+    const updateSize = (width: number, height: number) => {
+        fixGrids(width, height)
     }
 
     const invertGrids = () => {
@@ -597,7 +616,7 @@ const PixelArtBoard: React.FC = () => {
 
     useEffect(
         () => {
-            fixGrids()
+            fixGrids(grid!.width, grid!.height)
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
         []
@@ -606,17 +625,12 @@ const PixelArtBoard: React.FC = () => {
     useEffect(
         () => {
             getCppCode()
+            previousGrid.current = grid
+            setGridWidthValue(grid!.width)
+            setGridHeightValue(grid!.height)
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [grid]
-    )
-
-    useEffect(
-        () => {
-            fixGrids()
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [grid?.width, grid?.height]
     )
 
     useEffect(
@@ -683,12 +697,15 @@ const PixelArtBoard: React.FC = () => {
                                 min={1}
                                 max={128}
                                 placeholder="宽"
-                                value={grid?.width}
+                                value={gridWidthValue}
                                 onChange={(value) => {
-                                    setGrid({
-                                        ...grid!,
-                                        width: value ?? 1,
-                                    })
+                                    setGridWidthValue(value ?? 1)
+                                }}
+                                onPressEnter={(e) => {
+                                    updateSize(gridWidthValue, gridHeightValue)
+                                }}
+                                onStep={(value) => {
+                                    updateSize(value, gridHeightValue)
                                 }}
                             />
                             X
@@ -696,12 +713,15 @@ const PixelArtBoard: React.FC = () => {
                                 min={1}
                                 max={128}
                                 placeholder="高"
-                                value={grid?.height}
+                                value={gridHeightValue}
                                 onChange={(value) => {
-                                    setGrid({
-                                        ...grid!,
-                                        height: value ?? 1,
-                                    })
+                                    setGridHeightValue(value ?? 1)
+                                }}
+                                onPressEnter={(e) => {
+                                    updateSize(gridWidthValue, gridHeightValue)
+                                }}
+                                onStep={(value) => {
+                                    updateSize(gridWidthValue, value)
                                 }}
                             />
                             <Button onClick={shiftUp}>上移</Button>
@@ -829,6 +849,7 @@ const PixelArtBoard: React.FC = () => {
                     }}
                 >
                     <Space direction="vertical" style={{ width: '100%' }}>
+                        导入前请确保已经设置好对应的宽高
                         <TextArea
                             placeholder="例如: 0x08,0x0c,0x08,0x08,0x08,0x08,0x08,0x1c"
                             rows={5}
@@ -850,18 +871,20 @@ const PixelArtBoard: React.FC = () => {
                         dataSource={history}
                         rowKey="id"
                         columns={[
-                            { title: '名称', dataIndex: 'name' },
+                            { title: '名称', dataIndex: 'name', key: 'name' },
                             {
                                 title: '预览',
+                                key: 'preview',
                                 render: (value, record, index) => {
                                     return <Preview grid={record} />
                                 },
                             },
                             {
                                 title: '操作',
+                                key: 'action',
                                 render: (value, record, index) => {
                                     return [
-                                        <Space>
+                                        <Space key="buttons">
                                             <Button
                                                 onClick={() => {
                                                     setGrid(
