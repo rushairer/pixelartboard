@@ -209,7 +209,7 @@ const PixelArtBoard: React.FC = () => {
     }
 
     const saveGrid = (createANewOne: boolean) => {
-        let newGrid = grid!
+        let newGrid = { ...grid! }
 
         if (createANewOne) {
             newGrid.id = uuidv4()
@@ -251,6 +251,7 @@ const PixelArtBoard: React.FC = () => {
                 return dateB.getTime() - dateA.getTime()
             })
         )
+        setGrid(newGrid)
         message.success('保存成功!')
     }
 
