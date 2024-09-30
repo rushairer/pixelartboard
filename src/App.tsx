@@ -12,20 +12,22 @@ import {
     Table,
     Modal,
     Upload,
-    Image,
     Slider,
     Divider,
     Radio,
 } from 'antd'
 import { UploadOutlined } from '@ant-design/icons'
-import type { UploadProps } from 'antd'
+import type { GetProp, UploadFile, UploadProps } from 'antd'
 import type { UploadRequestOption } from 'rc-upload/lib/interface'
 import { useLocalStorageState } from 'ahooks'
 import { v4 as uuidv4 } from 'uuid'
 import dayjs from 'dayjs'
+import ImgCrop from 'antd-img-crop'
 
 const { Content } = Layout
 const { TextArea } = Input
+
+type FileType = Parameters<GetProp<UploadProps, 'beforeUpload'>>[0]
 
 type CellData = {
     value: boolean
@@ -133,7 +135,7 @@ const PixelArtBoard: React.FC = () => {
     const [ditherImageThreshold, setDitherImageThreshold] =
         useState<number>(128)
 
-    const [imageBase64URL, setImageBase64URL] = useState<string | undefined>()
+    const [history, setHistory] = useLocalStorageState<GridData[]>('history')
 
     const makeGrid = (): GridData => {
         const defaultCells = Array<CellData>(128 * 64).fill({
@@ -150,12 +152,13 @@ const PixelArtBoard: React.FC = () => {
         }
     }
 
-    const [history, setHistory] = useLocalStorageState<GridData[]>('history')
-
     const [grid, setGrid] = useLocalStorageState<GridData>('current_crid', {
         defaultValue: makeGrid(),
     })
     const previousGrid = useRef(grid)
+    const [importPreviewGrid, setImportPreviewGrid] = useState<
+        GridData | undefined
+    >()
 
     const binaryArrayToHex = (binaryArray: number[]): number[] => {
         while (binaryArray.length % 8 !== 0) {
@@ -305,8 +308,6 @@ const PixelArtBoard: React.FC = () => {
         const oldHeight = previousGrid.current?.height ?? 0
         const oldCells = previousGrid.current?.cells!
 
-        console.log(oldCells)
-
         const minWidth = Math.min(newWidth, oldWidth)
         const minHeight = Math.min(newHeight, oldHeight)
 
@@ -315,13 +316,11 @@ const PixelArtBoard: React.FC = () => {
             for (let x = 0; x < minWidth; x++) {
                 const oldIndex = y * oldWidth + x
                 const newIndex = y * newWidth + x
-                console.log(oldWidth, newWidth)
                 if (oldCells[oldIndex]) {
                     newCells[newIndex] = oldCells[oldIndex]
                 }
             }
         }
-        console.log(newCells)
 
         setGrid({
             ...grid!,
@@ -433,8 +432,19 @@ const PixelArtBoard: React.FC = () => {
         })
     }
 
-    const handleChange: UploadProps['onChange'] = ({ fileList }) => {
-        console.log(fileList)
+    const onPreview = async (file: UploadFile) => {
+        let src = file.url as string
+        if (!src) {
+            src = await new Promise((resolve) => {
+                const reader = new FileReader()
+                reader.readAsDataURL(file.originFileObj as FileType)
+                reader.onload = () => resolve(reader.result as string)
+            })
+        }
+        const image = document.createElement('img')
+        image.src = src
+        const imgWindow = window.open(src)
+        imgWindow?.document.write(image.outerHTML)
     }
 
     const floydSteinbergDithering = (
@@ -471,6 +481,21 @@ const PixelArtBoard: React.FC = () => {
                 }
             }
         }
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                let i = (y * width + x) * 4
+                let r = data[i]
+                let g = data[i + 1]
+                let b = data[i + 2]
+
+                if (r < 128 || g < 128 || b < 128) {
+                    data[i] = data[i + 1] = data[i + 2] = 0
+                } else {
+                    data[i] = data[i + 1] = data[i + 2] = 255
+                }
+                data[i + 3] = 255
+            }
+        }
     }
 
     const thresholdDithering = (
@@ -479,46 +504,46 @@ const PixelArtBoard: React.FC = () => {
         height: number,
         thresholdValue: number
     ) => {
-        let currentPixelIndex = 0
-
         for (let y = 0; y < height; y++) {
             for (let x = 0; x < width; x++) {
-                let gray =
-                    data[currentPixelIndex] * 0.3 +
-                    data[currentPixelIndex + 1] * 0.59 +
-                    data[currentPixelIndex + 2] * 0.11
-                let threshold = gray > thresholdValue ? 255 : 0
-                data[currentPixelIndex] =
-                    data[currentPixelIndex + 1] =
-                    data[currentPixelIndex + 2] =
-                        threshold
+                let i = (y * width + x) * 4
+                let r = data[i]
+                let g = data[i + 1]
+                let b = data[i + 2]
+                let gray = Math.round(0.3 * r + 0.59 * g + 0.11 * b)
+                let quantizedGray = gray < thresholdValue ? 0 : 255
 
-                let quantError = gray - threshold
-                // 扩散误差
-                if (x < width - 1) {
-                    data[currentPixelIndex + 3 * 1] += (quantError * 7) / 16
-                }
-                if (y < height - 1) {
-                    if (x > 0) {
-                        data[currentPixelIndex + -1 * width + 3 * 5] +=
-                            (quantError * 3) / 16
-                    }
-                    data[currentPixelIndex + width + 3 * 5] +=
-                        (quantError * 5) / 16
-                    if (x < width - 1) {
-                        data[currentPixelIndex + width + 3 * 7] +=
-                            (quantError * 1) / 16
-                    }
-                }
-
-                currentPixelIndex += 4
+                data[i] = data[i + 1] = data[i + 2] = quantizedGray
             }
         }
     }
 
-    const imageDataToBase64URL = (
-        importImageData: CustomImageData | undefined
-    ) => {
+    const imageDataToGridData = (importImageData: CustomImageData) => {
+        const { imageData, width, height } = importImageData
+
+        const newCells: CellData[] = Array(width * height).fill({
+            value: false,
+        })
+
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                let i = (y * width + x) * 4
+                newCells[y * width + x] = { value: imageData.data[i] === 0 }
+            }
+        }
+
+        setImportPreviewGrid({
+            id: uuidv4(),
+            name: `未命名${(history?.length ?? 0) + 1}`,
+            createdAt: dayjs().format(),
+            updatedAt: dayjs().format(),
+            cells: newCells,
+            width: width,
+            height: height,
+        })
+    }
+
+    const imagePixelation = (importImageData: CustomImageData | undefined) => {
         if (importImageData) {
             const { imageData, width, height } = importImageData
 
@@ -543,16 +568,7 @@ const PixelArtBoard: React.FC = () => {
                 thresholdDithering(data, width, height, ditherImageThreshold)
             }
 
-            const canvas = document.createElement('canvas')
-            canvas.width = width
-            canvas.height = height
-            const ctx = canvas.getContext('2d')
-
-            if (ctx) {
-                ctx.putImageData(copiedImageData, 0, 0)
-                const base64URL = canvas.toDataURL('image/png')
-                setImageBase64URL(base64URL)
-            }
+            imageDataToGridData({ imageData: copiedImageData, width, height })
         }
     }
 
@@ -579,12 +595,16 @@ const PixelArtBoard: React.FC = () => {
                 const ctx = canvas.getContext('2d')
 
                 if (ctx) {
-                    canvas.width = image.width
-                    canvas.height = image.height
+                    let scale
+                    if (image.width > image.height) {
+                        scale = 128 / image.width
+                    } else {
+                        scale = 128 / image.height
+                    }
+                    canvas.width = image.width * scale
+                    canvas.height = image.height * scale
 
-                    console.log(canvas.width, canvas.height)
-
-                    ctx.drawImage(image, 0, 0)
+                    ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
 
                     const imageData = ctx.getImageData(
                         0,
@@ -599,13 +619,11 @@ const PixelArtBoard: React.FC = () => {
                     }
                     setImportImageData(newImageData)
 
-                    imageDataToBase64URL(newImageData)
+                    imagePixelation(newImageData)
                 }
             })
         }
         reader.onerror = (event) => {
-            console.log(event)
-
             if (onError) {
                 onError(event)
             }
@@ -635,7 +653,7 @@ const PixelArtBoard: React.FC = () => {
 
     useEffect(
         () => {
-            imageDataToBase64URL(importImageData)
+            imagePixelation(importImageData)
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [ditherImageThreshold, ditheringMode]
@@ -733,9 +751,8 @@ const PixelArtBoard: React.FC = () => {
                                 onClick={() => {
                                     setShowImportImage(true)
                                 }}
-                                disabled
                             >
-                                导入图片...(开发中)
+                                导入图片...
                             </Button>
                             <Button
                                 onClick={() => {
@@ -791,22 +808,33 @@ const PixelArtBoard: React.FC = () => {
                     onClose={() => setShowImportImage(false)}
                     onCancel={() => setShowImportImage(false)}
                     onOk={() => {
-                        //importFromString()
+                        if (importPreviewGrid) {
+                            setGrid(importPreviewGrid)
+                        }
                         setShowImportImage(false)
                     }}
                 >
                     <Space direction="vertical" style={{ width: '100%' }}>
-                        <Upload
-                            accept="image/*"
-                            listType="picture-card"
-                            maxCount={1}
-                            onChange={handleChange}
-                            customRequest={customRequest}
+                        <ImgCrop
+                            rotationSlider
+                            aspectSlider
+                            showReset
+                            showGrid
+                            aspect={2}
+                            maxZoom={10}
                         >
-                            <UploadOutlined />
-                            上传图片
-                        </Upload>
-                        {imageBase64URL && (
+                            <Upload
+                                accept="image/*"
+                                listType="picture-card"
+                                maxCount={1}
+                                customRequest={customRequest}
+                                onPreview={onPreview}
+                            >
+                                <UploadOutlined />
+                                上传图片
+                            </Upload>
+                        </ImgCrop>
+                        {importPreviewGrid && (
                             <>
                                 <Divider />
                                 <Typography.Text strong>
@@ -833,7 +861,9 @@ const PixelArtBoard: React.FC = () => {
                                     max={200}
                                     min={10}
                                 />
-                                <Image src={imageBase64URL} width={300}></Image>
+                                <Space>
+                                    <Preview grid={importPreviewGrid} />
+                                </Space>
                             </>
                         )}
                     </Space>
