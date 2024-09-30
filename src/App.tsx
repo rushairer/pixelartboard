@@ -116,14 +116,17 @@ const PixelArtBoard: React.FC = () => {
 
     const [gridWidthValue, setGridWidthValue] = useState<number>(128)
     const [gridHeightValue, setGridHeightValue] = useState<number>(64)
+    const [inputTextWidthValue, setInputTextWidthValue] = useState<number>(128)
+    const [inputTextHeightValue, setInputTextHeightValue] = useState<number>(64)
 
     const [showHistory, setShowHistory] = useState<boolean>(false)
     const [showImportCode, setShowImportCode] = useState<boolean>(false)
     const [showImportImage, setShowImportImage] = useState<boolean>(false)
+    const [showInputText, setShowInputText] = useState<boolean>(false)
 
     const [codeString, setCodeString] = useState<string>('')
-
     const [importString, setImportString] = useState<string>('')
+    const [inputTextString, setInputTextString] = useState<string>('')
 
     const [ditheringMode, setDitheringMode] =
         useState<DitheringMode>('floyd-steinberg')
@@ -156,7 +159,11 @@ const PixelArtBoard: React.FC = () => {
         defaultValue: makeGrid(),
     })
     const previousGrid = useRef(grid)
+
     const [importPreviewGrid, setImportPreviewGrid] = useState<
+        GridData | undefined
+    >()
+    const [inputTextPreviewGrid, setInputTextPreviewGrid] = useState<
         GridData | undefined
     >()
 
@@ -290,6 +297,10 @@ const PixelArtBoard: React.FC = () => {
         setImportString('')
     }
 
+    const inputFromText = () => {
+        setGrid(inputTextPreviewGrid)
+    }
+
     const reSetGrids = () => {
         setGrid({
             ...grid!,
@@ -333,6 +344,10 @@ const PixelArtBoard: React.FC = () => {
 
     const updateSize = (width: number, height: number) => {
         fixGrids(width, height)
+    }
+
+    const updateInputTextSize = (width: number, height: number) => {
+        inputTextToGridData(width, height)
     }
 
     const invertGrids = () => {
@@ -516,6 +531,60 @@ const PixelArtBoard: React.FC = () => {
 
                 data[i] = data[i + 1] = data[i + 2] = quantizedGray
             }
+        }
+    }
+
+    const inputTextToGridData = (width: number, height: number) => {
+        const canvas = document.createElement('canvas')
+        const ctx = canvas.getContext('2d')
+        canvas.width = width
+        canvas.height = height
+
+        if (ctx) {
+            let fontSize = 100
+            do {
+                ctx.font = `${fontSize}px Arial`
+                const metrics = ctx.measureText(inputTextString)
+                if (metrics.width <= width) {
+                    break
+                }
+                fontSize--
+            } while (fontSize > 6)
+
+            ctx.fillStyle = 'black'
+            ctx.textAlign = 'center'
+            ctx.textBaseline = 'middle'
+            ctx.fillText(inputTextString, canvas.width / 2, canvas.height / 2)
+
+            const imageData = ctx.getImageData(
+                0,
+                0,
+                canvas.width,
+                canvas.height
+            )
+
+            const newCells: CellData[] = Array(width * height).fill({
+                value: false,
+            })
+
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    let i = (y * width + x) * 4
+                    newCells[y * width + x] = {
+                        value: imageData.data[i + 3] !== 0,
+                    }
+                }
+            }
+
+            setInputTextPreviewGrid({
+                id: uuidv4(),
+                name: `未命名${(history?.length ?? 0) + 1}`,
+                createdAt: dayjs().format(),
+                updatedAt: dayjs().format(),
+                cells: newCells,
+                width: width,
+                height: height,
+            })
         }
     }
 
@@ -762,6 +831,13 @@ const PixelArtBoard: React.FC = () => {
                             >
                                 导入代码...
                             </Button>
+                            <Button
+                                onClick={() => {
+                                    setShowInputText(true)
+                                }}
+                            >
+                                输入文字
+                            </Button>
                             <Button danger onClick={reSetGrids}>
                                 清空
                             </Button>
@@ -889,6 +965,85 @@ const PixelArtBoard: React.FC = () => {
                                 setImportString(e.target.value)
                             }}
                         />
+                    </Space>
+                </Modal>
+                <Modal
+                    open={showInputText}
+                    title="输入文字"
+                    onClose={() => setShowInputText(false)}
+                    onCancel={() => setShowInputText(false)}
+                    onOk={() => {
+                        inputFromText()
+                        setShowInputText(false)
+                    }}
+                >
+                    <Space direction="vertical" style={{ width: '100%' }}>
+                        <Typography>输入文字: </Typography>
+                        <Input
+                            value={inputTextString}
+                            onChange={(e) => {
+                                setInputTextString(e.target.value)
+                            }}
+                            onPressEnter={() => {
+                                inputTextToGridData(
+                                    inputTextWidthValue,
+                                    inputTextHeightValue
+                                )
+                            }}
+                        />
+                        <Space>
+                            <Typography>设置宽高: </Typography>
+                            <InputNumber
+                                min={1}
+                                max={128}
+                                placeholder="宽"
+                                value={inputTextWidthValue}
+                                onChange={(value) => {
+                                    setInputTextWidthValue(value ?? 1)
+                                }}
+                                onPressEnter={(e) => {
+                                    updateInputTextSize(
+                                        inputTextWidthValue,
+                                        inputTextHeightValue
+                                    )
+                                }}
+                                onStep={(value) => {
+                                    updateInputTextSize(
+                                        value,
+                                        inputTextHeightValue
+                                    )
+                                }}
+                            />
+                            X
+                            <InputNumber
+                                min={1}
+                                max={128}
+                                placeholder="高"
+                                value={inputTextHeightValue}
+                                onChange={(value) => {
+                                    setInputTextHeightValue(value ?? 1)
+                                }}
+                                onPressEnter={(e) => {
+                                    updateInputTextSize(
+                                        inputTextWidthValue,
+                                        inputTextHeightValue
+                                    )
+                                }}
+                                onStep={(value) => {
+                                    updateInputTextSize(
+                                        inputTextWidthValue,
+                                        value
+                                    )
+                                }}
+                            />
+                        </Space>
+                        {inputTextPreviewGrid && (
+                            <>
+                                <Space>
+                                    <Preview grid={inputTextPreviewGrid} />
+                                </Space>
+                            </>
+                        )}
                     </Space>
                 </Modal>
                 <Drawer
