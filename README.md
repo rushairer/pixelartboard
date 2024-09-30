@@ -1,46 +1,48 @@
-# Getting Started with Create React App
+# PixelArtBoard - 像素画板
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+自己画像素图或者导入图片取模，为 [U8g2](https://github.com/olikraus/u8g2) 提供图片素材.
 
-## Available Scripts
+[在线使用](https://pixel.aben.io/)
 
-In the project directory, you can run:
+![](./preview.png)
+
+## 主要功能介绍
+
+### `新建`
+
+新建一个默认 128x64 的空白文件. 对画布的修改会实时保存在缓冲区, 即使关闭浏览器也可以下次回来继续编辑.
+
+### `保存`
+
+将画布保存。可以在 `读取...` 功能中打开保存的画布列表.
+
+### `另存`
+
+将当前画布另存一个副本.
+
+### `读取...`
+
+读取之前保存的画布列表.
+
+### `导入图片...`
+
+上传一张图片, 裁剪后取模获得像素图.
+
+### `导入代码...`
+
+首先根据代码设置画布的宽高, 然后导入代码.
+
+## 开发模式
+
+在根目录运行命令:
 
 ### `npm start`
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+进入模式。\
+打开 [http://localhost:3000](http://localhost:3000) 可以使用.
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
-
-### `npm test`
-
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+开发模式支持热更新.
 
 ### `npm run build`
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
-
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
-
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
-
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
-
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
-
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
+生成静态文件并保存在 `build` 目录.
