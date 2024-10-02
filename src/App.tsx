@@ -15,6 +15,7 @@ import {
     Slider,
     Divider,
     Radio,
+    Select,
 } from 'antd'
 import { UploadOutlined } from '@ant-design/icons'
 import type { GetProp, UploadFile, UploadProps } from 'antd'
@@ -23,6 +24,7 @@ import { useLocalStorageState } from 'ahooks'
 import { v4 as uuidv4 } from 'uuid'
 import dayjs from 'dayjs'
 import ImgCrop from 'antd-img-crop'
+import type { FontData } from './local-font-access'
 
 const { Content } = Layout
 const { TextArea } = Input
@@ -127,6 +129,8 @@ const PixelArtBoard: React.FC = () => {
     const [codeString, setCodeString] = useState<string>('')
     const [importString, setImportString] = useState<string>('')
     const [inputTextString, setInputTextString] = useState<string>('')
+    const [localFonts, setLocalFonts] = useState<FontData[]>([])
+    const [currentFontName, setCurrentFontName] = useState<string>('Arial')
 
     const [ditheringMode, setDitheringMode] =
         useState<DitheringMode>('floyd-steinberg')
@@ -463,6 +467,20 @@ const PixelArtBoard: React.FC = () => {
         imgWindow?.document.write(image.outerHTML)
     }
 
+    const queryLocalFonts = async () => {
+        try {
+            if ('queryLocalFonts' in window) {
+                const availableFonts = await window.queryLocalFonts()
+                setLocalFonts(availableFonts)
+                console.log(availableFonts)
+            }
+        } catch (err) {
+            if (err instanceof DOMException) {
+                console.error(err.name, err.message)
+            }
+        }
+    }
+
     const floydSteinbergDithering = (
         data: Uint8ClampedArray,
         width: number,
@@ -543,7 +561,7 @@ const PixelArtBoard: React.FC = () => {
         if (ctx) {
             let fontSize = 100
             do {
-                ctx.font = `${fontSize}px Arial`
+                ctx.font = `${fontSize}px ${currentFontName}`
                 const metrics = ctx.measureText(inputTextString)
                 if (metrics.width <= width) {
                     break
@@ -729,6 +747,14 @@ const PixelArtBoard: React.FC = () => {
         [ditherImageThreshold, ditheringMode]
     )
 
+    useEffect(
+        () => {
+            inputTextToGridData(inputTextWidthValue, inputTextHeightValue)
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [currentFontName]
+    )
+
     return (
         <Layout>
             <Content>
@@ -833,6 +859,7 @@ const PixelArtBoard: React.FC = () => {
                             </Button>
                             <Button
                                 onClick={() => {
+                                    queryLocalFonts()
                                     setShowInputText(true)
                                 }}
                             >
@@ -978,19 +1005,55 @@ const PixelArtBoard: React.FC = () => {
                     }}
                 >
                     <Space direction="vertical" style={{ width: '100%' }}>
-                        <Typography>输入文字: </Typography>
-                        <Input
-                            value={inputTextString}
-                            onChange={(e) => {
-                                setInputTextString(e.target.value)
-                            }}
-                            onPressEnter={() => {
-                                inputTextToGridData(
-                                    inputTextWidthValue,
-                                    inputTextHeightValue
-                                )
-                            }}
-                        />
+                        <Space>
+                            <Typography>输入文字: </Typography>
+                            <Input
+                                style={{ width: 400 }}
+                                value={inputTextString}
+                                allowClear
+                                onChange={(e) => {
+                                    setInputTextString(e.target.value)
+                                }}
+                                onPressEnter={() => {
+                                    inputTextToGridData(
+                                        inputTextWidthValue,
+                                        inputTextHeightValue
+                                    )
+                                }}
+                            />
+                        </Space>
+                        <Space>
+                            <Typography>选择字体: </Typography>
+                            <Select
+                                style={{ width: 400 }}
+                                showSearch
+                                filterOption={(
+                                    input: string,
+                                    option?: {
+                                        label: string | null | undefined
+                                        value: string | null | undefined
+                                    }
+                                ) => {
+                                    return (
+                                        (option?.label ?? '')
+                                            .toLowerCase()
+                                            .includes(input.toLowerCase()) ||
+                                        (option?.value ?? '')
+                                            .toLowerCase()
+                                            .includes(input.toLowerCase())
+                                    )
+                                }}
+                                allowClear
+                                value={currentFontName}
+                                options={localFonts.map((font) => {
+                                    return {
+                                        value: font.postscriptName,
+                                        label: font.fullName,
+                                    }
+                                })}
+                                onChange={setCurrentFontName}
+                            ></Select>
+                        </Space>
                         <Space>
                             <Typography>设置宽高: </Typography>
                             <InputNumber
