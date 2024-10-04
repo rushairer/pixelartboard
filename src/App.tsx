@@ -141,6 +141,12 @@ const PixelArtBoard: React.FC = () => {
 
     const [ditherImageThreshold, setDitherImageThreshold] =
         useState<number>(128)
+    const [ditherImageThresholdR, setDitherImageThresholdR] =
+        useState<number>(30)
+    const [ditherImageThresholdG, setDitherImageThresholdG] =
+        useState<number>(59)
+    const [ditherImageThresholdB, setDitherImageThresholdB] =
+        useState<number>(11)
 
     const [history, setHistory] = useLocalStorageState<GridData[]>('history')
 
@@ -472,7 +478,6 @@ const PixelArtBoard: React.FC = () => {
             if ('queryLocalFonts' in window) {
                 const availableFonts = await window.queryLocalFonts()
                 setLocalFonts(availableFonts)
-                console.log(availableFonts)
             }
         } catch (err) {
             if (err instanceof DOMException) {
@@ -493,7 +498,11 @@ const PixelArtBoard: React.FC = () => {
                 let r = data[i]
                 let g = data[i + 1]
                 let b = data[i + 2]
-                let gray = Math.round(0.3 * r + 0.59 * g + 0.11 * b)
+                let gray = Math.round(
+                    (ditherImageThresholdR / 100) * r +
+                        (ditherImageThresholdG / 100) * g +
+                        (ditherImageThresholdB / 100) * b
+                )
                 let quantizedGray = gray < thresholdValue ? 0 : 255
 
                 data[i] = data[i + 1] = data[i + 2] = quantizedGray
@@ -544,7 +553,11 @@ const PixelArtBoard: React.FC = () => {
                 let r = data[i]
                 let g = data[i + 1]
                 let b = data[i + 2]
-                let gray = Math.round(0.3 * r + 0.59 * g + 0.11 * b)
+                let gray = Math.round(
+                    (ditherImageThresholdR / 100) * r +
+                        (ditherImageThresholdG / 100) * g +
+                        (ditherImageThresholdB / 100) * b
+                )
                 let quantizedGray = gray < thresholdValue ? 0 : 255
 
                 data[i] = data[i + 1] = data[i + 2] = quantizedGray
@@ -744,7 +757,13 @@ const PixelArtBoard: React.FC = () => {
             imagePixelation(importImageData)
         },
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [ditherImageThreshold, ditheringMode]
+        [
+            ditherImageThreshold,
+            ditheringMode,
+            ditherImageThresholdR,
+            ditherImageThresholdG,
+            ditherImageThresholdB,
+        ]
     )
 
     useEffect(
@@ -941,6 +960,10 @@ const PixelArtBoard: React.FC = () => {
                         {importPreviewGrid && (
                             <>
                                 <Divider />
+
+                                <Space>
+                                    <Preview grid={importPreviewGrid} />
+                                </Space>
                                 <Typography.Text strong>
                                     取模算法
                                 </Typography.Text>
@@ -962,12 +985,36 @@ const PixelArtBoard: React.FC = () => {
                                 <Slider
                                     value={ditherImageThreshold}
                                     onChange={setDitherImageThreshold}
-                                    max={200}
+                                    max={255}
                                     min={10}
                                 />
-                                <Space>
-                                    <Preview grid={importPreviewGrid} />
-                                </Space>
+                                <Typography.Text strong>
+                                    红色比例
+                                </Typography.Text>
+                                <Slider
+                                    value={ditherImageThresholdR}
+                                    onChange={setDitherImageThresholdR}
+                                    max={100}
+                                    min={0}
+                                />
+                                <Typography.Text strong>
+                                    绿色比例
+                                </Typography.Text>
+                                <Slider
+                                    value={ditherImageThresholdG}
+                                    onChange={setDitherImageThresholdG}
+                                    max={100}
+                                    min={0}
+                                />
+                                <Typography.Text strong>
+                                    蓝色比例
+                                </Typography.Text>
+                                <Slider
+                                    value={ditherImageThresholdB}
+                                    onChange={setDitherImageThresholdB}
+                                    max={100}
+                                    min={0}
+                                />
                             </>
                         )}
                     </Space>
