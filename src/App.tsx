@@ -94,10 +94,13 @@ const Pixel: React.FC<{
     index: number
     toggleColor: (index: number) => void
     grid: GridData
-}> = ({ index, toggleColor, grid }) => {
+    onMouseDown: (index: number) => void
+    onMouseEnter: (index: number) => void
+}> = ({ index, toggleColor, grid, onMouseDown, onMouseEnter }) => {
     return (
         <div
-            onClick={() => toggleColor(index)}
+            onMouseDown={() => onMouseDown(index)}
+            onMouseEnter={() => onMouseEnter(index)}
             style={{
                 backgroundColor: grid.cells[index]?.value ? 'black' : 'white',
                 cursor: 'pointer',
@@ -115,6 +118,44 @@ const PixelArtBoard: React.FC = () => {
     } = theme.useToken()
 
     const { message } = App.useApp()
+
+    const [isDrawing, setIsDrawing] = useState<boolean>(false)
+    const [initialCellValue, setInitialCellValue] = useState<boolean | null>(
+        null
+    )
+
+    const handleMouseDown = (index: number) => {
+        setIsDrawing(true)
+        setInitialCellValue(!grid!.cells[index].value)
+        toggleColor(index)
+    }
+
+    const handleMouseEnter = (index: number) => {
+        if (isDrawing && initialCellValue !== null) {
+            const newCells = grid?.cells?.map((item, mapIndex) => {
+                if (mapIndex === index) {
+                    return { value: initialCellValue }
+                }
+                return item
+            })
+            setGrid({
+                ...grid!,
+                cells: newCells ?? [],
+            })
+        }
+    }
+
+    useEffect(() => {
+        const handleMouseUp = () => {
+            setIsDrawing(false)
+            setInitialCellValue(null)
+        }
+
+        document.addEventListener('mouseup', handleMouseUp)
+        return () => {
+            document.removeEventListener('mouseup', handleMouseUp)
+        }
+    }, [])
 
     const [gridWidthValue, setGridWidthValue] = useState<number>(128)
     const [gridHeightValue, setGridHeightValue] = useState<number>(64)
@@ -907,17 +948,30 @@ const PixelArtBoard: React.FC = () => {
                                 width: grid!.width * 10,
                             }}
                         >
-                            {Array.from(
-                                { length: grid!.width * grid!.height },
-                                (_, index) => (
-                                    <Pixel
-                                        key={index}
-                                        index={index}
-                                        toggleColor={toggleColor}
-                                        grid={grid!}
-                                    ></Pixel>
-                                )
-                            )}
+                            <div
+                                style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: `repeat(${
+                                        grid!.width
+                                    }, 1fr)`,
+                                    gap: 0,
+                                    width: grid!.width * 10,
+                                }}
+                            >
+                                {Array.from(
+                                    { length: grid!.width * grid!.height },
+                                    (_, index) => (
+                                        <Pixel
+                                            key={index}
+                                            index={index}
+                                            toggleColor={toggleColor}
+                                            grid={grid!}
+                                            onMouseDown={handleMouseDown}
+                                            onMouseEnter={handleMouseEnter}
+                                        />
+                                    )
+                                )}
+                            </div>
                         </div>
                     </div>
                     <Button type="primary" onClick={copyCode}>
